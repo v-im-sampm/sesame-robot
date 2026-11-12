@@ -4,6 +4,9 @@
 #include <ESPmDNS.h>
 #include <Wire.h>
 #include <ESP32Servo.h>
+#if defined(CONFIG_IDF_TARGET_ESP32S3) && defined(MCPWM_NUM_UNITS)
+#error "ESP32Servo >= 3.1 on ESP32-S3: install ESP32Servo 3.0.9"
+#endif
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "face-bitmaps.h"
@@ -36,9 +39,12 @@
 //#define I2C_SCL 22
 
 // I2C Pins for S2 Mini Board
-#define I2C_SDA 33
-#define I2C_SCL 35
+// #define I2C_SDA 10
+// #define I2C_SCL 11
 
+// I2C Pins for S3 Super Mini Board
+#define I2C_SDA 10
+#define I2C_SCL 11
 
 // DNS Server for Captive Portal
 DNSServer dnsServer;
@@ -107,7 +113,11 @@ Servo servos[8];
 //const int servoPins[8] = {15, 2, 23, 19, 4, 16, 17, 18};
 
 // Lolin S2 Mini Pinout
-const int servoPins[8] = {1, 2, 4, 6, 8, 10, 13, 14};
+// const int servoPins[8] = {1, 2, 4, 6, 8, 10, 13, 14};
+// R1=4  R2=5  L1=6  L2=7  R4=10  R3=11  L3=12  L4=13
+
+// ESP32-S3 Super Mini Pinout
+const int servoPins[8] = {1, 2, 3, 4, 5, 6, 7, 8};
 
 // Subtrim values for each servo (offset in degrees)
 int8_t servoSubtrim[8] = {0, 0, 0, 0, 0, 0, 0, 0};
