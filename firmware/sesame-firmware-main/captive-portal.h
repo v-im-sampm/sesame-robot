@@ -479,6 +479,15 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div id="wifiResult" style="font-size:13px; margin-top:10px; min-height:18px;"></div>
       </div>
 
+      <div class="settings-section">
+        <h4>Firmware Update</h4>
+        <p style="font-size:13px; color:#ccc;">Select a compiled firmware .bin for this board. Keep the robot powered and do not close this page during the upload. The robot will restart after a successful update.</p>
+        <label for="firmwareFile">Firmware binary:</label>
+        <input type="file" id="firmwareFile" accept=".bin">
+        <button id="firmwareUploadButton" class="btn-settings" style="width:100%; margin-top:12px;" onclick="uploadFirmware()">Flash Firmware</button>
+        <div id="firmwareResult" role="status" aria-live="polite" style="font-size:13px; margin-top:10px; min-height:18px;"></div>
+      </div>
+
       <button class="btn-settings" style="width: 100%; margin-top: 20px;" onclick="openMotorControl()">Manual Motor Control</button>
 
       <button class="btn-save" onclick="saveSettings()">Save Settings</button>
@@ -705,6 +714,55 @@ function openSettings() {
 
 function closeSettings() { 
   document.getElementById('settingsPanel').style.display = 'none'; 
+}
+
+function uploadFirmware() {
+  const fileInput = document.getElementById('firmwareFile');
+  const button = document.getElementById('firmwareUploadButton');
+  const result = document.getElementById('firmwareResult');
+  const file = fileInput.files[0];
+  if (!file || !file.name.toLowerCase().endsWith('.bin') || file.size === 0) {
+    result.textContent = 'Select a non-empty firmware .bin file.';
+    return;
+  }
+  if (!confirm('Flash ' + file.name + '? The robot will restart when the update finishes.')) return;
+
+  const data = new FormData();
+  data.append('firmware', file);
+  const request = new XMLHttpRequest();
+  button.disabled = true;
+  fileInput.disabled = true;
+  result.textContent = 'Uploading firmware… 0%';
+  request.open('POST', '/api/firmware/update');
+  request.upload.onprogress = event => {
+    if (event.lengthComputable) {
+      result.textContent = 'Uploading firmware… ' + Math.round(100 * event.loaded / event.total) + '%';
+    }
+  };
+  request.onload = () => {
+    let response;
+    try {
+      response = JSON.parse(request.responseText);
+    } catch (error) {
+      result.textContent = 'Update failed: invalid response from the robot.';
+      button.disabled = false;
+      fileInput.disabled = false;
+      return;
+    }
+    if (request.status === 200 && response && response.status === 'ok') {
+      result.textContent = 'Firmware installed. Wait for the robot to restart, then reconnect.';
+    } else {
+      result.textContent = 'Update failed: ' + (response && response.error || 'HTTP ' + request.status);
+      button.disabled = false;
+      fileInput.disabled = false;
+    }
+  };
+  request.onerror = () => {
+    result.textContent = 'Upload interrupted. Reconnect to the robot and try again.';
+    button.disabled = false;
+    fileInput.disabled = false;
+  };
+  request.send(data);
 }
 
 function openMotorControl() {

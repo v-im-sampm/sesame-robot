@@ -8,6 +8,7 @@ This document provides technical information on the firmware architecture, contr
 ## Table of Contents
 
 - [How to Flash the Firmware](#how-to-flash-the-firmware)
+  - [Update from the Web Portal](#update-from-the-web-portal)
 - [Network Configuration](#network-configuration--connectivity)
 - [API Reference](#api-reference)
   - [Legacy Web Endpoints](#legacy-web-endpoints)
@@ -103,6 +104,12 @@ This document provides technical information on the firmware architecture, contr
    - The serial monitor provides individual motor control for testing and troubleshooting
    - **If using AP mode only**: Connect to the "Sesame-Controller-BETA" WiFi network (password: `12345678`) and navigate to any website
    - **If using network mode**: Look for the "Connected to network!" message in Serial Monitor, then access via `http://sesame-robot.local` or the displayed IP address
+
+### Update from the Web Portal
+
+After the initial USB flash, connect to the robot's access point and open its controller page (normally `http://192.168.4.1`). In **Settings → Firmware Update**, select a compiled **application** `.bin` for the same ESP32 board and pin configuration, then tap **Flash Firmware**. Keep the robot powered and your browser connected until the page confirms the update. The robot restarts automatically after success; reconnect to its access point afterward. A failed or interrupted upload does not restart the robot; retry with the correct binary or use USB to recover.
+
+In Arduino IDE, choose **Sketch → Export Compiled Binary** after selecting the board and an **OTA-capable partition scheme** (such as "Default 4MB with spiffs"). Use the sketch/application `.bin`, **not** a merged flash image, bootloader, or partition-table binary. The web portal cannot perform the first flash or change the partition table; use USB for those tasks. Firmware updates are available to anyone who can reach the robot's web server, so change the default access-point password and only connect it to trusted networks.
 
 ### Troubleshooting
 

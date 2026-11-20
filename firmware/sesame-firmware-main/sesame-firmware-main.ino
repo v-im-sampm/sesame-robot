@@ -2,6 +2,7 @@
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <ESPmDNS.h>
+#include <Update.h>
 #include <Wire.h>
 #include <ESP32Servo.h>
 #if defined(CONFIG_IDF_TARGET_ESP32S3) && defined(MCPWM_NUM_UNITS)
@@ -52,6 +53,10 @@ const byte DNS_PORT = 53;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WebServer server(80);
+enum FirmwareUploadState { FIRMWARE_IDLE, FIRMWARE_WRITING, FIRMWARE_READY, FIRMWARE_FAILED };
+FirmwareUploadState firmwareUploadState = FIRMWARE_IDLE;
+String firmwareUploadError = "";
+unsigned long firmwareRestartMs = 0;
 
 // Global state for animations
 String currentCommand = "";
@@ -117,7 +122,7 @@ Servo servos[8];
 // R1=4  R2=5  L1=6  L2=7  R4=10  R3=11  L3=12  L4=13
 
 // ESP32-S3 Super Mini Pinout
-const int servoPins[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+const int servoPins[8] = {2, 44, 11, 12, 1, 3, 10, 13};
 
 // Subtrim values for each servo (offset in degrees)
 int8_t servoSubtrim[8] = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -225,6 +230,8 @@ void handleWifiScan();
 void handleWifiConnect();
 void handleWifiStatus();
 void handleNotFound();
+void handleFirmwareUpload();
+void handleFirmwareUploadComplete();
 String jsonEscape(const String& s);
 bool startMdns();
 void announceNetwork(const String& ssid);
@@ -238,6 +245,10 @@ void handleRoot() {
 }
 
 void handleCommandWeb() {
+  if (firmwareUploadState == FIRMWARE_WRITING || firmwareRestartMs != 0) {
+    server.send(503, "text/plain", "Firmware update in progress");
+    return;
+  }
   // We send 200 OK immediately so the web browser doesn't hang waiting for animation to finish
   if (server.hasArg("pose")) {
     currentCommand = server.arg("pose");
@@ -311,6 +322,10 @@ void handleGetStatus() {
 
 // API endpoint for network clients to send commands (JSON-based)
 void handleApiCommand() {
+  if (firmwareUploadState == FIRMWARE_WRITING || firmwareRestartMs != 0) {
+    server.send(503, "application/json", "{\"error\":\"Firmware update in progress\"}");
+    return;
+  }
   if (server.method() != HTTP_POST) {
     server.send(405, "application/json", "{\"error\":\"Method not allowed\"}");
     return;
@@ -658,6 +673,62 @@ void handleNotFound() {
   handleRoot();
 }
 
+void handleFirmwareUpload() {
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    firmwareUploadError = "";
+    firmwareUploadState = FIRMWARE_FAILED;
+    String filename = upload.filename;
+    filename.toLowerCase();
+    if (firmwareRestartMs != 0) {
+      firmwareUploadError = "Restart pending";
+    } else if (upload.name != "firmware" || !filename.endsWith(".bin")) {
+      firmwareUploadError = "Select a firmware .bin file";
+    } else if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+      firmwareUploadError = Update.errorString();
+      Update.printError(Serial);
+    } else {
+      currentCommand = "";
+      firmwareUploadState = FIRMWARE_WRITING;
+    }
+  } else if (upload.status == UPLOAD_FILE_WRITE && firmwareUploadState == FIRMWARE_WRITING) {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+      firmwareUploadError = Update.errorString();
+      Update.printError(Serial);
+      Update.abort();
+      firmwareUploadState = FIRMWARE_FAILED;
+    }
+  } else if (upload.status == UPLOAD_FILE_END && firmwareUploadState == FIRMWARE_WRITING) {
+    if (upload.totalSize == 0) {
+      firmwareUploadError = "Firmware file is empty";
+      Update.abort();
+      firmwareUploadState = FIRMWARE_FAILED;
+    } else if (!Update.end(true)) {
+      firmwareUploadError = Update.errorString();
+      Update.printError(Serial);
+      firmwareUploadState = FIRMWARE_FAILED;
+    } else {
+      firmwareUploadState = FIRMWARE_READY;
+    }
+  } else if (upload.status == UPLOAD_FILE_ABORTED) {
+    if (firmwareUploadState == FIRMWARE_WRITING) Update.abort();
+    firmwareUploadError = "Upload interrupted";
+    firmwareUploadState = FIRMWARE_FAILED;
+  }
+}
+
+void handleFirmwareUploadComplete() {
+  if (firmwareUploadState != FIRMWARE_READY) {
+    String error = firmwareUploadError.length() ? firmwareUploadError : "No firmware file received";
+    server.send(400, "application/json", "{\"error\":\"" + jsonEscape(error) + "\"}");
+    firmwareUploadState = FIRMWARE_IDLE;
+    return;
+  }
+  server.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Firmware installed; restarting\"}");
+  firmwareRestartMs = millis();
+  firmwareUploadState = FIRMWARE_IDLE;
+}
+
 void setup() {
   Serial.begin(115200);
   randomSeed(micros());
@@ -732,6 +803,7 @@ void setup() {
   server.on("/api/wifi/scan", handleWifiScan);
   server.on("/api/wifi/connect", handleWifiConnect);
   server.on("/api/wifi/status", handleWifiStatus);
+  server.on("/api/firmware/update", HTTP_POST, handleFirmwareUploadComplete, handleFirmwareUpload);
   
   // Catch-all route for captive portal
   // This ensures any URL redirects to the controller page
@@ -764,6 +836,10 @@ void loop() {
   dnsServer.processNextRequest();
   
   server.handleClient();
+  if (firmwareRestartMs != 0) {
+    if (millis() - firmwareRestartMs >= 1500) ESP.restart();
+    return;
+  }
   updateWifiSetup();
   updateAnimatedFace();
   updateIdleBlink();
