@@ -12,7 +12,7 @@
         "--port",
         "COM20",
         "--fqbn",
-        "esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=4M,PartitionScheme=default",
+        "esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=enabled",
         "--build-path",
         "${env:TEMP}\\sesame-robot-vscode-build",
         "${workspaceFolder}\\firmware\\sesame-firmware-main"

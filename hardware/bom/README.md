@@ -55,6 +55,17 @@ Every part required to assemble Sesame is cataloged here. Pick the wiring strate
 | 2-pin screw terminal (2.54 mm pitch) | 1 | Optional battery input on PCB | [Amazon](https://www.amazon.com/s?k=2+pin+screw+terminal+block+2.54mm+pitch) |
 | M2.5 × 5 mm male-female standoffs | 4 | Elevate the PCB over the DevKit mounting holes | [Amazon](https://www.amazon.com/s?k=m2.5+male+female+standoff+5mm) |
 
+## Optional – Home Assistant Voice Satellite Add-On
+
+Lets the robot act as a Home Assistant voice assistant. Wiring and setup are in the [firmware README](../../firmware/README.md#home-assistant-voice-assistant--mcp) (currently mapped for the ESP32-S3 Super Mini).
+
+| Item | Qty | Notes | Source |
+| --- | --- | --- | --- |
+| INMP441 I2S MEMS microphone module | 1 | Omnidirectional digital mic; mount away from the servos | [Amazon](https://www.amazon.com/s?k=INMP441+I2S+microphone) |
+| MAX98357A I2S amplifier module | 1 | 3 W class-D mono amp, powered from the 5 V rail | [Amazon](https://www.amazon.com/s?k=MAX98357A+I2S+amplifier) |
+| Small speaker (4–8 Ω, 1–3 W, ~20–28 mm) | 1 | Fit inside the frame or top cover | [Amazon](https://www.amazon.com/s?k=28mm+8+ohm+speaker) |
+| 470 µF+ electrolytic capacitor | 1 | Optional; decouples the amp from servo current spikes | [Amazon](https://www.amazon.com/s?k=470uf+electrolytic+capacitor) |
+
 ## Power Sources & Connectors
 
 | Item | Qty | Notes | Source |

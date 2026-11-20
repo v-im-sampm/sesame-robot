@@ -26,6 +26,36 @@
 #define NETWORK_PASS ""  // Your WiFi password
 #define ENABLE_NETWORK_MODE false  // Set to true to enable network connection attempts
 
+// --- Home Assistant Integration ---
+// MCP server at http://<robot>/mcp exposes motions as AI tools (see firmware/README.md).
+#ifndef ENABLE_MCP
+#define ENABLE_MCP true
+#endif
+#define MCP_MAX_MOVE_SECONDS 10     // Upper limit for a single voice/AI "move" command
+#define MCP_DEFAULT_MOVE_SECONDS 3
+
+// Wyoming voice satellite: requires an INMP441 mic + MAX98357A amp on the pins
+// below (ESP32-S3 Super Mini wiring; other boards use these GPIOs for servos).
+// Arduino IDE: set Tools > Partition Scheme > "Minimal SPIFFS (1.9MB APP with OTA)"
+// and Tools > PSRAM > "QSPI PSRAM", or the sketch won't fit.
+#ifndef ENABLE_VOICE_SATELLITE
+#define ENABLE_VOICE_SATELLITE true
+#endif
+#define VOICE_I2S_BCLK 4            // INMP441 SCK + MAX98357A BCLK
+#define VOICE_I2S_WS 5              // INMP441 WS  + MAX98357A LRC
+#define VOICE_I2S_DIN 8             // INMP441 SD
+#define VOICE_I2S_DOUT 9            // MAX98357A DIN
+#define VOICE_AMP_SD_PIN -1         // Optional: MAX98357A SD pin (e.g. 43) to silence the amp when idle
+#define VOICE_SPEAKER_VOLUME 60     // Percent
+#define VOICE_MIC_GAIN_SHIFT 12     // Lower = louder mic (16 = unity)
+
+#if ENABLE_MCP
+#include "mcp-server.h"
+#endif
+#if ENABLE_VOICE_SATELLITE
+#include "voice-satellite.h"
+#endif
+
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
@@ -60,6 +90,9 @@ unsigned long firmwareRestartMs = 0;
 
 // Global state for animations
 String currentCommand = "";
+// Optional auto-stop for continuous moves (walk/turn) started with a duration.
+String timedCommand = "";
+unsigned long commandDeadlineMs = 0;
 String currentFaceName = "default";
 const unsigned char* const* currentFaceFrames = nullptr;
 uint8_t currentFaceFrameCount = 0;
@@ -239,6 +272,42 @@ void setApOnlyInfoText();
 void showWifiInfoNow();
 void updateWifiSetup();
 void finishWifiSetup(const String& err);
+void startCommand(const String& cmd, unsigned long durationMs = 0);
+void stopCommand();
+void checkCommandDeadline();
+bool firmwareUpdateInProgress();
+String buildStatusJson();
+void updateVoiceFace();
+
+// Start a motion command. durationMs > 0 stops continuous moves (forward,
+// backward, left, right) automatically; one-shot gestures end on their own.
+void startCommand(const String& cmd, unsigned long durationMs) {
+  currentCommand = cmd;
+  timedCommand = durationMs > 0 ? cmd : "";
+  commandDeadlineMs = millis() + durationMs;
+  recordInput();
+  exitIdle();
+}
+
+void stopCommand() {
+  currentCommand = "";
+  timedCommand = "";
+  recordInput();
+}
+
+void checkCommandDeadline() {
+  if (timedCommand.length() == 0) return;
+  if (currentCommand != timedCommand) {
+    timedCommand = "";  // replaced or finished; the deadline no longer applies
+  } else if ((long)(millis() - commandDeadlineMs) >= 0) {
+    currentCommand = "";
+    timedCommand = "";
+  }
+}
+
+bool firmwareUpdateInProgress() {
+  return firmwareUploadState == FIRMWARE_WRITING || firmwareRestartMs != 0;
+}
 
 void handleRoot() {
   server.send(200, "text/html", index_html);
@@ -251,20 +320,15 @@ void handleCommandWeb() {
   }
   // We send 200 OK immediately so the web browser doesn't hang waiting for animation to finish
   if (server.hasArg("pose")) {
-    currentCommand = server.arg("pose");
-    recordInput();
-    exitIdle();
+    startCommand(server.arg("pose"));
     server.send(200, "text/plain", "OK"); 
   } 
   else if (server.hasArg("go")) {
-    currentCommand = server.arg("go");
-    recordInput();
-    exitIdle();
+    startCommand(server.arg("go"));
     server.send(200, "text/plain", "OK");
   } 
   else if (server.hasArg("stop")) {
-    currentCommand = "";
-    recordInput();
+    stopCommand();
     server.send(200, "text/plain", "OK");
   }
   else if (server.hasArg("motor") && server.hasArg("value")) {
@@ -307,7 +371,7 @@ void handleSetSettings() {
 }
 
 // API endpoint for network clients to get robot status
-void handleGetStatus() {
+String buildStatusJson() {
   String json = "{";
   json += "\"currentCommand\":\"" + currentCommand + "\",";
   json += "\"currentFace\":\"" + currentFaceName + "\",";
@@ -316,8 +380,18 @@ void handleGetStatus() {
   if (networkConnected) {
     json += ",\"networkIP\":\"" + networkIP.toString() + "\"";
   }
+  json += ",\"mcpEnabled\":" + String(ENABLE_MCP ? "true" : "false");
+#if ENABLE_VOICE_SATELLITE
+  json += ",\"voice\":\"" + String(voiceStatus()) + "\"";
+#else
+  json += ",\"voice\":\"disabled\"";
+#endif
   json += "}";
-  server.send(200, "application/json", json);
+  return json;
+}
+
+void handleGetStatus() {
+  server.send(200, "application/json", buildStatusJson());
 }
 
 // API endpoint for network clients to send commands (JSON-based)
@@ -400,13 +474,20 @@ void handleApiCommand() {
   
   // Execute command
   if (command == "stop") {
-    currentCommand = "";
-    recordInput();
+    stopCommand();
     server.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Command stopped\"}");
   } else {
-    currentCommand = command;
-    recordInput();
-    exitIdle();
+    // Optional "duration" (seconds) auto-stops continuous moves, e.g. {"command":"forward","duration":3}
+    unsigned long durationMs = 0;
+    int durIdx = body.indexOf("\"duration\"");
+    if (durIdx != -1) {
+      int colon = body.indexOf(':', durIdx);
+      if (colon != -1) {
+        float seconds = body.substring(colon + 1).toFloat();
+        if (seconds > 0) durationMs = (unsigned long)(seconds * 1000.0f);
+      }
+    }
+    startCommand(command, durationMs);
     server.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Command executed\"}");
   }
 }
@@ -436,6 +517,9 @@ bool startMdns() {
   mdnsOk = MDNS.begin(deviceHostname.c_str());
   if (mdnsOk) {
     MDNS.addService("http", "tcp", 80);
+#if ENABLE_VOICE_SATELLITE
+    MDNS.addService("wyoming", "tcp", WYOMING_PORT);
+#endif
     Serial.println("mDNS responder started: http://" + deviceHostname + ".local");
   } else {
     Serial.println("Error setting up mDNS responder!");
@@ -798,6 +882,9 @@ void setup() {
   // API endpoints for network communication
   server.on("/api/status", handleGetStatus);
   server.on("/api/command", handleApiCommand);
+#if ENABLE_MCP
+  server.on("/mcp", handleMcp);  // Model Context Protocol (Home Assistant MCP Client)
+#endif
 
   // WiFi provisioning endpoints (runtime network setup from the web UI)
   server.on("/api/wifi/scan", handleWifiScan);
@@ -829,6 +916,10 @@ void setup() {
   setFace("rest");
   
   Serial.println(F("HTTP server & Captive Portal started."));
+
+#if ENABLE_VOICE_SATELLITE
+  voiceSetup();
+#endif
 }
 
 void loop() {
@@ -844,8 +935,13 @@ void loop() {
   updateAnimatedFace();
   updateIdleBlink();
   updateWifiInfoScroll();
+  checkCommandDeadline();
+  updateVoiceFace();
 
   if (currentCommand != "") {
+#if ENABLE_VOICE_SATELLITE
+    voiceSetMotionActive(true);  // Mute the mic while servos are noisy
+#endif
     String cmd = currentCommand;
     if (cmd == "forward") runWalkPose();
     else if (cmd == "backward") runWalkBackward();
@@ -866,6 +962,10 @@ void loop() {
     else if (cmd == "shrug") runShrugPose();
     else if (cmd == "dead") runDeadPose();
     else if (cmd == "crab") runCrabPose();
+    else currentCommand = "";  // Unknown command: don't spin forever
+#if ENABLE_VOICE_SATELLITE
+    if (currentCommand == "") voiceSetMotionActive(false);
+#endif
   }
   
   // Serial CLI for debugging (can be used to diagnose servo position issues and wiring)
@@ -1107,6 +1207,54 @@ void exitIdle() {
   idleBlinkActive = false;
 }
 
+// Mirror the voice pipeline on the OLED. Motion sequences own the face while
+// they run, so the latest voice event is held until the robot is still.
+void updateVoiceFace() {
+#if ENABLE_VOICE_SATELLITE
+  static VoiceFaceEvent pending = VOICE_FACE_NONE;
+  static unsigned long errorUntilMs = 0;
+
+  VoiceFaceEvent ev = voiceTakeFaceEvent();
+  if (ev != VOICE_FACE_NONE) pending = ev;
+
+  if (errorUntilMs != 0 && (long)(millis() - errorUntilMs) >= 0) {
+    errorUntilMs = 0;
+    if (pending == VOICE_FACE_NONE && currentCommand == "") enterIdle();
+  }
+  if (pending == VOICE_FACE_NONE || currentCommand != "") return;
+
+  ev = pending;
+  pending = VOICE_FACE_NONE;
+  if (ev != VOICE_FACE_ERROR) errorUntilMs = 0;
+  switch (ev) {
+    case VOICE_FACE_LISTENING:
+      exitIdle();
+      recordInput();
+      setFaceWithMode("happy", FACE_ANIM_LOOP);
+      break;
+    case VOICE_FACE_THINKING:
+      exitIdle();
+      setFaceWithMode("thinking", FACE_ANIM_LOOP);
+      break;
+    case VOICE_FACE_TALKING:
+      exitIdle();
+      setFaceWithMode("talk_happy", FACE_ANIM_LOOP);
+      break;
+    case VOICE_FACE_DONE:
+      enterIdle();
+      break;
+    case VOICE_FACE_ERROR:
+      exitIdle();
+      setFaceWithMode("confused", FACE_ANIM_LOOP);
+      errorUntilMs = millis() + 2000;
+      if (errorUntilMs == 0) errorUntilMs = 1;
+      break;
+    default:
+      break;
+  }
+#endif
+}
+
 void updateIdleBlink() {
   if (!idleActive) return;
 
@@ -1148,6 +1296,7 @@ bool pressingCheck(String cmd, int ms) {
     server.handleClient();
     dnsServer.processNextRequest();
     updateAnimatedFace();
+    checkCommandDeadline();
     if (currentCommand != cmd) {
       runStandPose(1);
       return false;

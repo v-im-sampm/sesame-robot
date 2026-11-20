@@ -16,6 +16,7 @@ This document provides technical information on the firmware architecture, contr
   - [Python Examples](#python-api-example)
   - [JavaScript Examples](#nodejsjavascript-example)
 - [Advanced Integration Examples](#advanced-integration-examples)
+  - [Home Assistant Voice Assistant & MCP](#home-assistant-voice-assistant--mcp)
   - [Voice Assistant Integration](#voice-assistant-integration)
   - [Home Automation](#home-automation-integration)
 - [Idle Animation System](#idle-animation-system)
@@ -43,6 +44,7 @@ This document provides technical information on the firmware architecture, contr
 - `ESP32Servo` **v3.0.9** (recommended)
 - `Adafruit SSD1306`
 - `Adafruit GFX Library`
+- `ArduinoJson` **v7.x** (used by the Home Assistant MCP server)
 
 > [!IMPORTANT]
 > Use **ESP32Servo v3.0.9** for this project. Newer releases currently have a known issue where writing to one servo can affect multiple channels ([madhephaestus/ESP32Servo#103](https://github.com/madhephaestus/ESP32Servo/issues/103)).
@@ -71,6 +73,12 @@ This document provides technical information on the firmware architecture, contr
      - **USB CDC On Boot**: "Enabled" (Required for Serial Monitor)
      - **Flash Mode**: "QIO 80MHz"
      - **Partition Scheme**: "Default 4MB with spiffs"
+   - **For ESP32-S3 Super Mini with the Home Assistant voice satellite** (`ENABLE_VOICE_SATELLITE true`):
+     - **USB CDC On Boot**: "Enabled"
+     - **Flash Size**: "4MB (32Mb)"
+     - **Partition Scheme**: "Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)" — the firmware no longer fits the default 1.25 MB app slot
+     - **PSRAM**: "QSPI PSRAM"
+     - After changing the partition scheme, flash once over **USB** (web firmware updates can't change the partition table).
 5. **Select the correct port**:
 
    - Go to **Tools → Port** and select your ESP32's COM port
@@ -345,9 +353,13 @@ GET /api/status
   "currentFace": "walk",
   "networkConnected": true,
   "apIP": "192.168.4.1",
-  "networkIP": "192.168.1.100"
+  "networkIP": "192.168.1.100",
+  "mcpEnabled": true,
+  "voice": "disabled"
 }
 ```
+
+`voice` is `disabled` unless the [voice satellite](#home-assistant-voice-assistant--mcp) is compiled in, in which case it is one of `offline`, `waiting`, `connected`, `listening`, or `speaking`.
 
 #### Send Commands
 
@@ -360,6 +372,8 @@ Content-Type: application/json
   "face": "walk"
 }
 ```
+
+Add an optional `"duration"` (seconds) to make a continuous movement stop by itself, e.g. `{"command": "forward", "duration": 3}`.
 
 **Response:**
 
@@ -407,7 +421,7 @@ Content-Type: application/json
 
 **Movement Commands:**
 
-- `forward`, `backward`, `left`, `right` - Continuous movement (loops until stopped)
+- `forward`, `backward`, `left`, `right` - Continuous movement (loops until stopped, or for `duration` seconds)
 - `stop` - Immediately stop current movement
 
 **Pose Commands (one-shot animations):**
@@ -511,6 +525,77 @@ fetch(`${robotURL}/api/command`, {
 ```
 
 ## Advanced Integration Examples
+
+### Home Assistant Voice Assistant & MCP
+
+The firmware can plug straight into [Home Assistant](https://www.home-assistant.io/) Assist so you can say *"Hey Jarvis, walk forward for three seconds and then wave"*:
+
+- **MCP server (on by default):** `POST /mcp` speaks the [Model Context Protocol](https://modelcontextprotocol.io/) (Streamable HTTP, stateless JSON responses). Home Assistant's **MCP Client** integration turns the robot's motions into tools that an LLM conversation agent (e.g. a local Ollama model) can call.
+- **Wyoming voice satellite (optional):** with a microphone and speaker added, the robot itself becomes an Assist satellite. Audio streams to Home Assistant over the [Wyoming protocol](https://github.com/OHF-Voice/wyoming); wake word, speech-to-text, and text-to-speech all run on the Home Assistant server, and the OLED shows listening / thinking / talking faces.
+
+Both require [Network Mode](#network-mode-optional) so Home Assistant can reach the robot on your LAN.
+
+#### MCP Tools
+
+| Tool | Arguments | Effect |
+| --- | --- | --- |
+| `move` | `direction`: `forward` \| `backward` \| `left` \| `right`, `seconds`: 1-10 (default 3) | Walks or turns, then stands |
+| `perform` | `action`: `wave`, `dance`, `bow`, `point`, `pushup`, `shake`, `shrug`, `cute`, `freaky`, `worm`, `swim`, `crab`, `dead`, `stand`, `rest` | Runs a one-shot gesture |
+| `set_face` | `face`: `happy`, `sad`, `angry`, `surprised`, `sleepy`, `love`, `excited`, `confused`, `thinking`, `default` | Changes the expression |
+| `stop` | - | Stops moving |
+| `get_status` | - | Returns the `/api/status` JSON |
+
+Moves are always time-limited (`MCP_MAX_MOVE_SECONDS`), so a misheard command can't send the robot walking off a table indefinitely. Test the endpoint with cURL:
+
+```bash
+curl -X POST http://sesame-robot.local/mcp -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+curl -X POST http://sesame-robot.local/mcp -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"perform","arguments":{"action":"wave"}}}'
+```
+
+Set `#define ENABLE_MCP false` to remove the endpoint.
+
+#### Voice Satellite Hardware (ESP32-S3 Super Mini)
+
+Add an **INMP441** I2S MEMS microphone and a **MAX98357A** I2S amplifier with a small 4-8 Ω speaker. Both share one full-duplex I2S bus on the free Super Mini GPIOs:
+
+| Signal | GPIO | INMP441 | MAX98357A |
+| --- | --- | --- | --- |
+| Bit clock | 4 | SCK | BCLK |
+| Word select | 5 | WS | LRC |
+| Mic data | 8 | SD | - |
+| Speaker data | 9 | - | DIN |
+| Amp shutdown (optional) | 43 | - | SD |
+| Power | - | VDD → 3V3, L/R → GND, GND | Vin → 5V, GND |
+
+Pins are set by the `VOICE_I2S_*` / `VOICE_AMP_SD_PIN` defines. Tips:
+
+- Mount the mic away from the servos, and keep its wires short. The mic is muted automatically while the robot moves and while it is speaking.
+- Servos and the amplifier share the 5 V rail; add a 470 µF+ capacitor near the amp if you hear pops or the board browns out.
+- GPIO 43 is also the UART TX pin and toggles at boot, so the amp may click briefly on reset.
+- Adjust `VOICE_MIC_GAIN_SHIFT` (lower = louder) and `VOICE_SPEAKER_VOLUME` to taste.
+- Other board configs use GPIO 4/5/8/9 for servos, so re-map the pins before enabling voice on them.
+
+Then enable it in [sesame-firmware-main.ino](sesame-firmware-main.ino):
+
+```cpp
+#define ENABLE_VOICE_SATELLITE true
+```
+
+Build with **PSRAM enabled** (Tools → PSRAM → "QSPI PSRAM") and the **Minimal SPIFFS** partition scheme (Tools → Partition Scheme → "Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)"); the VS Code task already sets both. The speaker buffer lives in PSRAM; without it, a smaller internal buffer is used. The satellite listens on TCP port **10700** and is advertised over mDNS as `_wyoming._tcp`.
+
+#### Home Assistant Setup
+
+1. **Voice services:** install the *Whisper* (speech-to-text), *Piper* (text-to-speech), and *openWakeWord* add-ons (or their Docker containers) and add each through the **Wyoming Protocol** integration.
+2. **LLM agent:** install the **Ollama** integration with a tool-capable model (e.g. `qwen2.5:7b` or `llama3.1:8b`) and allow it to control Home Assistant.
+3. **MCP:** add the **Model Context Protocol** (MCP Client) integration with the URL `http://sesame-robot.local/mcp` (or the robot's IP). In the Ollama agent's options, enable the robot's MCP server as one of its LLM APIs (alongside *Assist* if you also want home control).
+4. **Assist pipeline:** create a pipeline using Ollama as the conversation agent, Whisper, and Piper, and pick an openWakeWord model as its streaming wake word.
+5. **Satellite (optional voice hardware):** Home Assistant usually discovers the robot automatically; otherwise add a **Wyoming Protocol** integration with the robot's IP and port `10700`. Select your pipeline on the new satellite device.
+
+> [!WARNING]
+> `/mcp` and the Wyoming port have no authentication, like the rest of the robot's web API. Only enable Network Mode on a trusted LAN.
 
 ### Voice Assistant Integration
 
