@@ -2,3 +2,6 @@
 .idea/
 __pycache__/
 *.pyc
+
+# Local WiFi credentials
+firmware/sesame-firmware-main/secrets.h

@@ -23,16 +23,16 @@
 #include <atomic>
 
 #ifndef VOICE_I2S_BCLK
-#define VOICE_I2S_BCLK 4    // INMP441 SCK + MAX98357A BCLK
+#define VOICE_I2S_BCLK 9    // INMP441 SCK + MAX98357A BCLK
 #endif
 #ifndef VOICE_I2S_WS
-#define VOICE_I2S_WS 5      // INMP441 WS + MAX98357A LRC
+#define VOICE_I2S_WS 8      // INMP441 WS + MAX98357A LRC
 #endif
 #ifndef VOICE_I2S_DIN
-#define VOICE_I2S_DIN 8     // INMP441 SD (mic data into the ESP32)
+#define VOICE_I2S_DIN 4     // INMP441 SD (mic data into the ESP32)
 #endif
 #ifndef VOICE_I2S_DOUT
-#define VOICE_I2S_DOUT 9    // MAX98357A DIN (speaker data out of the ESP32)
+#define VOICE_I2S_DOUT 5    // MAX98357A DIN (speaker data out of the ESP32)
 #endif
 #ifndef VOICE_AMP_SD_PIN
 #define VOICE_AMP_SD_PIN -1 // Optional MAX98357A SD pin: amp is shut down while silent

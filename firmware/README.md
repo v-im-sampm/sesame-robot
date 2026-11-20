@@ -563,10 +563,10 @@ Add an **INMP441** I2S MEMS microphone and a **MAX98357A** I2S amplifier with a 
 
 | Signal | GPIO | INMP441 | MAX98357A |
 | --- | --- | --- | --- |
-| Bit clock | 4 | SCK | BCLK |
-| Word select | 5 | WS | LRC |
-| Mic data | 8 | SD | - |
-| Speaker data | 9 | - | DIN |
+| Bit clock | 9 | SCK | BCLK |
+| Word select | 8 | WS | LRC |
+| Mic data | 4 | SD | - |
+| Speaker data | 5 | - | DIN |
 | Amp shutdown (optional) | 43 | - | SD |
 | Power | - | VDD → 3V3, L/R → GND, GND | Vin → 5V, GND |
 

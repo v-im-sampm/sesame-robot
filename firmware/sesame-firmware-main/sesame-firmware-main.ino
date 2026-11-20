@@ -20,11 +20,21 @@
 #define AP_PASS  "12345678" // Must be at least 8 characters
 
 // --- Station Mode Configuration (Optional) ---
-// Set these to connect to your home/office WiFi network
+// Put your home/office WiFi credentials in secrets.h (copy secrets.example.h).
+// secrets.h is git-ignored, so passwords never get committed.
 // Leave NETWORK_SSID empty to disable station mode
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+#ifndef NETWORK_SSID
 #define NETWORK_SSID ""  // Your WiFi network name
+#endif
+#ifndef NETWORK_PASS
 #define NETWORK_PASS ""  // Your WiFi password
+#endif
+#ifndef ENABLE_NETWORK_MODE
 #define ENABLE_NETWORK_MODE false  // Set to true to enable network connection attempts
+#endif
 
 // --- Home Assistant Integration ---
 // MCP server at http://<robot>/mcp exposes motions as AI tools (see firmware/README.md).
@@ -41,10 +51,10 @@
 #ifndef ENABLE_VOICE_SATELLITE
 #define ENABLE_VOICE_SATELLITE true
 #endif
-#define VOICE_I2S_BCLK 4            // INMP441 SCK + MAX98357A BCLK
-#define VOICE_I2S_WS 5              // INMP441 WS  + MAX98357A LRC
-#define VOICE_I2S_DIN 8             // INMP441 SD
-#define VOICE_I2S_DOUT 9            // MAX98357A DIN
+#define VOICE_I2S_BCLK 9            // INMP441 SCK + MAX98357A BCLK
+#define VOICE_I2S_WS 8              // INMP441 WS  + MAX98357A LRC
+#define VOICE_I2S_DIN 4             // INMP441 SD
+#define VOICE_I2S_DOUT 5            // MAX98357A DIN
 #define VOICE_AMP_SD_PIN -1         // Optional: MAX98357A SD pin (e.g. 43) to silence the amp when idle
 #define VOICE_SPEAKER_VOLUME 60     // Percent
 #define VOICE_MIC_GAIN_SHIFT 12     // Lower = louder mic (16 = unity)
