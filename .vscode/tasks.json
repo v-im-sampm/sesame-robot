@@ -1,0 +1,30 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Firmware: Compile and upload (COM20)",
+      "type": "process",
+      "command": "${env:LOCALAPPDATA}\\Programs\\Arduino IDE\\resources\\app\\lib\\backend\\resources\\arduino-cli.exe",
+      "args": [
+        "compile",
+        "--upload",
+        "--verify",
+        "--port",
+        "COM20",
+        "--fqbn",
+        "esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=4M,PartitionScheme=default",
+        "--build-path",
+        "${env:TEMP}\\sesame-robot-vscode-build",
+        "${workspaceFolder}\\firmware\\sesame-firmware-main"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always"
+      }
+    }
+  ]
+}

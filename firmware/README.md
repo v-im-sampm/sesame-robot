@@ -111,6 +111,10 @@ After the initial USB flash, connect to the robot's access point and open its co
 
 In Arduino IDE, choose **Sketch → Export Compiled Binary** after selecting the board and an **OTA-capable partition scheme** (such as "Default 4MB with spiffs"). Use the sketch/application `.bin`, **not** a merged flash image, bootloader, or partition-table binary. The web portal cannot perform the first flash or change the partition table; use USB for those tasks. Firmware updates are available to anyone who can reach the robot's web server, so change the default access-point password and only connect it to trusted networks.
 
+### Compile and Upload from VS Code (Windows)
+
+Open the repository folder in VS Code, connect the ESP32-S3 on COM20, and choose **Terminal → Run Build Task** (or press **Ctrl+Shift+B**). The default **Firmware: Compile and upload (COM20)** task compiles the sketch with USB CDC enabled and the 4 MB OTA partition scheme, uploads it, and verifies the flash. It uses `arduino-cli.exe` bundled with the installed Arduino IDE and the libraries listed above. If your port changes, edit `COM20` in `.vscode/tasks.json` before running the task. This task targets the ESP32-S3; select another board configuration and pin mapping before flashing different hardware.
+
 ### Troubleshooting
 
 - **Linux USB Permissions**: If your port isn't showing up or you get "Permission Denied", you likely need to add your user to the `dialout` group: `sudo usermod -a -G dialout $USER`. Log out and back in for changes to take effect.

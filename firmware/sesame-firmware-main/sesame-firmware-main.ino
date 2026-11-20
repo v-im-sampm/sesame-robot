@@ -44,8 +44,8 @@
 // #define I2C_SCL 11
 
 // I2C Pins for S3 Super Mini Board
-#define I2C_SDA 10
-#define I2C_SCL 11
+#define I2C_SDA 7
+#define I2C_SCL 6
 
 // DNS Server for Captive Portal
 DNSServer dnsServer;
